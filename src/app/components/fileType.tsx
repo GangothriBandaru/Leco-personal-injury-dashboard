@@ -17,6 +17,20 @@ const KIND_EXTENSIONS: Record<Exclude<FileKind, "document">, string[]> = {
 
 const SPREADSHEET = ["xls", "xlsx", "csv", "ods"];
 
+/** File format groups for filtering, read from the extension. */
+export const FORMAT_GROUPS = ["PDF", "Image", "Video", "Word Document", "Excel Spreadsheet", "PowerPoint", "Other"] as const;
+export type FormatGroup = (typeof FORMAT_GROUPS)[number];
+export function formatGroup(name: string): FormatGroup {
+  const ext = fileExtension(name);
+  if (ext === "pdf") return "PDF";
+  if (KIND_EXTENSIONS.image.includes(ext)) return "Image";
+  if (KIND_EXTENSIONS.video.includes(ext)) return "Video";
+  if (ext === "doc" || ext === "docx") return "Word Document";
+  if (SPREADSHEET.includes(ext)) return "Excel Spreadsheet";
+  if (ext === "ppt" || ext === "pptx") return "PowerPoint";
+  return "Other";
+}
+
 /** Lower-case extension without the dot — "" when the name has none. */
 export function fileExtension(name: string): string {
   const m = /\.([a-z0-9]+)$/i.exec(name.trim());

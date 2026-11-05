@@ -18,6 +18,11 @@ export interface CasePolicy {
   caseType?: string;
   caseSubType?: string;
   insurer?: string;
+  /** Limits as the declarations state them, e.g. "$1,000,000". */
+  occurrenceLimit?: string;
+  aggregateLimit?: string;
+  /** Coverage status on the date of loss, as the declarations state it. */
+  coverageStatus?: string;
 }
 
 export const POLICY_UNAVAILABLE = "Not available in case record.";
@@ -56,5 +61,8 @@ export function resolveCasePolicy(
     caseType,
     caseSubType,
     insurer: fields.get("Carrier") ?? fields.get("Insurer"),
+    occurrenceLimit: fields.get("Each Occurrence Limit") ?? fields.get("Per Occurrence Limit"),
+    aggregateLimit: fields.get("General Aggregate") ?? fields.get("Aggregate Limit"),
+    coverageStatus: fields.get("Status on Date of Loss") ?? fields.get("Coverage Status"),
   };
 }

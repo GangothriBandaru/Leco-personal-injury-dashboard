@@ -1,12 +1,17 @@
-import { useState, useEffect } from "react";
-import { FileTypeIcon, FileTypeTag } from "../components/fileType";
+import { useState, useEffect, useRef } from "react";
+import { FileTypeIcon, FileTypeTag, FORMAT_GROUPS, formatGroup } from "../components/fileType";
 import { StageNavigator } from "../components/StageNavigator";
 import {
   ChevronLeft, ChevronRight, ChevronDown, CheckCircle, FileText, Eye, Download, X,
   AlertCircle, ArrowRight, User, Building2, Shield, Scale, Stethoscope, Gavel,
-  Users, Bot, Sparkles, ArrowUpRight, Plus, Pencil, Trash2, RotateCcw, ClipboardList, ExternalLink, CalendarDays
+  Users, Bot, Sparkles, ArrowUpRight, Plus, Pencil, Trash2, RotateCcw, ClipboardList, ExternalLink, CalendarDays, GitCompareArrows, SlidersHorizontal
 } from "lucide-react";
+import { TimelineFilterBar, TimelineFiltersButton, applyTimelineFilter, filterActive, NO_FILTER, type TimelineFilter } from "../timeline/timelineFilters";
+import { EvidenceConflictsWorkspace } from "../evidence/EvidenceConflictsWorkspace";
+import { conflictsForCase } from "../evidence/conflictData";
+import { useConflictDecisions } from "../evidence/conflictDecisions";
 import { INSURANCE_ANALYSIS } from "../insurance/insuranceData";
+import { resolveCasePolicy, POLICY_UNAVAILABLE } from "../insurance/casePolicy";
 import { Button } from "../components/ui/button";
 import { DocActions, DocumentWorkspaceModal, RowMenu, RowActionGroup } from "../components/DocumentWorkspace";
 import { EditDocumentDialog, DeleteDocumentDialog } from "../components/DocumentDialogs";
@@ -58,13 +63,15 @@ interface AnalysisPageProps {
   onOpenDetail?: (detail: AnalysisDetail) => void;
   /** From a findings page, back to the stage overview. */
   onBackToAnalysis?: () => void;
+  /** Where a findings page returns to: the Analysis stage, or Case Ready. */
+  returnTo?: "analysis" | "case-ready";
   /** Opens the Medical Chronology. */
   onOpenChronology?: () => void;
   /** Changes the case documents (edit, delete) from their latest value. */
   onDocumentsUpdate?: (fn: (docs: CaseDocument[]) => CaseDocument[]) => void;
 }
 
-export type AnalysisDetail = "liability" | "injury" | "violations" | "timeline";
+export type AnalysisDetail = "liability" | "injury" | "violations" | "timeline" | "conflicts";
 
 // Case narrative — incident → treatment → injury → damages → case ready
 interface TimelineEvent {
@@ -358,7 +365,86 @@ function EventFormModal({
   );
 }
 
-export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToIntake, onProceedToValuation, onOpenInsurance, onOpenJurisdiction, onOpenDefendants, governingLaw, scrollToSection, detail, onOpenDetail, onBackToAnalysis, onOpenChronology, onDocumentsUpdate }: AnalysisPageProps) {
+// ── Evidence Verification filters ──────────────────────────────────────────
+// The categories named for this view, plus any other category the case's
+// documents carry. "Other" holds documents in none of the named ones.
+const EV_CATEGORIES = ["Medical Records", "Police Reports", "Insurance Documents", "Employment & Wage Records", "Witness Statements", "Court Documents"];
+const evCategoryOf = (c: string) => (c === "General Documents" ? "Other" : c);
+
+function EvidenceFilters({ docs, type, category, onType, onCategory, shown }: {
+  docs: { name: string; category: string }[]; type: string; category: string;
+  onType: (v: string) => void; onCategory: (v: string) => void; shown: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  const extra = Array.from(new Set(docs.map((d) => evCategoryOf(d.category)))).filter((c) => !EV_CATEGORIES.includes(c) && c !== "Other").sort();
+  const categories = [...EV_CATEGORIES, ...extra, "Other"];
+  const active = (type !== "All" ? 1 : 0) + (category !== "All" ? 1 : 0);
+  const count = (pred: (d: { name: string; category: string }) => boolean) => docs.filter(pred).length;
+  const sel = "w-full h-9 bg-white border border-line rounded-lg px-2.5 text-sm text-ink focus:outline-none focus:border-brand";
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="dialog"
+        className={`inline-flex items-center gap-2 h-9 px-3.5 rounded-lg border bg-white text-sm font-medium transition-colors ${open || active ? "border-brand text-deep" : "border-line text-ink hover:border-brand hover:text-deep"}`}>
+        <SlidersHorizontal className="w-4 h-4" strokeWidth={1.75} /> Filters
+        {active > 0 && <span className="min-w-[18px] h-[18px] inline-flex items-center justify-center rounded-full bg-brand text-white text-[10.5px] tabular-nums px-1">{active}</span>}
+      </button>
+      {open && (
+        <div role="dialog" aria-label="Filter documents" className="absolute right-0 top-[calc(100%+6px)] z-30 w-[300px] bg-white border border-line rounded-xl shadow-lg p-4 space-y-3">
+          <label className="block">
+            <span className="eyebrow block mb-1">Type</span>
+            <select value={type} onChange={(e) => onType(e.target.value)} className={sel}>
+              <option value="All">All</option>
+              {FORMAT_GROUPS.map((g) => <option key={g} value={g}>{g} ({count((d) => formatGroup(d.name) === g)})</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="eyebrow block mb-1">Category</span>
+            <select value={category} onChange={(e) => onCategory(e.target.value)} className={sel}>
+              <option value="All">All</option>
+              {categories.map((c) => <option key={c} value={c}>{c} ({count((d) => evCategoryOf(d.category) === c)})</option>)}
+            </select>
+          </label>
+          <div className="flex items-center justify-between pt-2 border-t border-line">
+            <span className="text-xs text-[#5B6B78]" aria-live="polite">{shown} of {docs.length} documents</span>
+            <button type="button" disabled={!active} onClick={() => { onType("All"); onCategory("All"); }} className="text-xs font-semibold text-deep hover:text-ink disabled:text-[#8A98A3] disabled:cursor-not-allowed">Clear all</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The Analysis Findings counts, shared with Case Ready so both show the same figures. */
+export function useAnalysisCounts(caseId: string | undefined, documents: CaseDocument[]) {
+  const ref = caseId ?? "PI-2024-001";
+  const signals = generateAnalysisFindings(classifyDocuments(documents));
+  const record = liabilityForCase(ref);
+  const defs = record ? defendantsForCase(ref) : undefined;
+  const timeline = useCaseTimeline(ref);
+  return {
+    // With a liability analysis on record: the defendant elements, plaintiff checks and shared findings.
+    liability: record && defs
+      ? defs.candidates.reduce((n, c) => n + c.elements.filter((e) => e.kind).length, 0) + record.plaintiff.checks.length + record.sharedFindings.length
+      : signals.filter((s) => s.kind === "liability").length,
+    injury: signals.filter((s) => s.kind === "injury").length,
+    violations: VIOLATION_CARDS.length,
+    events: timelineEvents.filter((ev) => !timeline.removed[ev.id]).length + timeline.manual.length,
+  };
+}
+
+export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToIntake, onProceedToValuation, onOpenInsurance, onOpenJurisdiction, onOpenDefendants, governingLaw, scrollToSection, detail, onOpenDetail, onBackToAnalysis, returnTo = "analysis", onOpenChronology, onDocumentsUpdate }: AnalysisPageProps) {
+  // A findings page opened from Case Ready goes back there.
+  const backText = returnTo === "case-ready" ? "Back to Case Ready" : "Back to Analysis";
+  const crumb = returnTo === "case-ready" ? "Case Ready" : "Analysis";
   // Returning from a sub-page lands back on the section it was opened from.
   useEffect(() => {
     if (!scrollToSection) return;
@@ -406,6 +492,14 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
     source: d.source === "Plaintiff" ? "Plaintiff" : "Attorney Office",
   }));
   const hasFindings = signals.length > 0;
+  // Case Timeline Overview filters; the panel opens from its Filters button.
+  const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>(NO_FILTER);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // Evidence Verification filters: file type and category, combined.
+  const [evType, setEvType] = useState("All");
+  const [evCategory, setEvCategory] = useState("All");
+  const shownDocuments = verifiedDocuments.filter((d) =>
+    (evType === "All" || formatGroup(d.name) === evType) && (evCategory === "All" || evCategoryOf(d.category) === evCategory));
 
   const liabilitySignals = signals.filter((s) => s.kind === "liability");
   const injurySignals = signals.filter((s) => s.kind === "injury");
@@ -416,11 +510,10 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
   // one row below the stages rather than in the top bar.
   const liabilityPage = detail === "liability" && !!liabilityRecord;
   const liabilityDefendants = liabilityRecord ? defendantsForCase(caseData?.caseId ?? "PI-2024-001") : undefined;
-  const liabilityCount = liabilityRecord && liabilityDefendants
-    ? liabilityDefendants.candidates.reduce((n, c) => n + c.elements.filter((e) => e.kind).length, 0) + liabilityRecord.plaintiff.checks.length + liabilityRecord.sharedFindings.length
-    : liabilitySignals.length;
-  const injuryCount = injurySignals.length;
-  const violationCount = VIOLATION_CARDS.length;
+  const counts = useAnalysisCounts(caseData?.caseId, documents);
+  const liabilityCount = counts.liability;
+  const injuryCount = counts.injury;
+  const violationCount = counts.violations;
   const verifiedCount = verifiedDocuments.length || 12;
 
   const defaultCaseData = {
@@ -660,7 +753,13 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
     }
   };
 
-  // The five analysis cards — counts read from the findings themselves.
+  // Evidence conflicts: read from the case record and the documents on file.
+  const conflictData = conflictsForCase(data.caseId, documents);
+  const conflictDecisions = useConflictDecisions(data.caseId ?? "");
+  const conflictCount = conflictData.conflicts.length;
+  const conflictsOpen = conflictData.conflicts.filter((c) => !conflictDecisions.items[c.id]).length;
+
+  // The analysis cards — counts read from the findings themselves.
   const analysisCards: { title: string; category: string; icon: any; description: string; count?: number; meta: string; onOpen?: () => void }[] = [
     { title: "Liability Signals", category: "Liability", icon: Scale, count: liabilityCount, meta: `${liabilityCount} ${liabilityCount === 1 ? "finding" : "findings"}`,
       description: "Key findings identifying potential liability and the evidence supporting each finding.", onOpen: () => onOpenDetail?.("liability") },
@@ -674,13 +773,17 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
       description: "Review the treatment timeline, key medical events, and supporting records from the incident through the present.", onOpen: onOpenChronology },
     { title: "Case Timeline Overview", category: "Timeline", icon: CalendarDays, meta: `${events.length} key ${events.length === 1 ? "event" : "events"}`,
       description: "Key events extracted from the case timeline, with supporting evidence for each event.", onOpen: () => onOpenDetail?.("timeline") },
+    { title: "Evidence Conflicts", category: "Evidence", icon: GitCompareArrows, count: conflictCount, meta: conflictCount ? `${conflictsOpen} open · ${conflictCount} found` : "None found",
+      description: "Where the case record, our analysis and the documents on file disagree, with each source quoted side by side.", onOpen: () => onOpenDetail?.("conflicts") },
   ];
 
+  const shownEvents = applyTimelineFilter(events, timelineFilter);
   const DETAIL_META: Record<AnalysisDetail, { title: string; category: string; icon: any; count: number; description: string }> = {
     liability: { title: "Liability Signals", category: "Liability", icon: Scale, count: liabilityCount, description: "Key findings identifying potential liability and the evidence supporting each finding." },
     injury: { title: "Injury Signals", category: "Medical", icon: Stethoscope, count: injuryCount, description: "Key injury findings, medical evidence, and documented impacts relevant to the case." },
     violations: { title: "Violation Analysis", category: "Analysis", icon: Gavel, count: violationCount, description: "Identified violations, supporting evidence, and their relevance to potential liability." },
     timeline: { title: "Case Timeline Overview", category: "Timeline", icon: CalendarDays, count: events.length, description: "Key events extracted from the case timeline, with supporting evidence for each event." },
+    conflicts: { title: "Evidence Conflicts", category: "Evidence", icon: GitCompareArrows, count: conflictCount, description: "Where the case's sources disagree." },
   };
   // One findings set on its own page: the same cards, evidence and Preview /
   // Insights the stage showed in its tabs, every finding at once.
@@ -698,6 +801,12 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
         onOpenDefendants={onOpenDefendants}
         onProceedToValuation={onProceedToValuation}
         onOpenDocs={(files, view, context, insight, panel) => openSets([files.map(docForFile)], [context], 0, view, [insight], [panel])}
+      />
+    );
+    if (signalTab === "conflicts") return (
+      <EvidenceConflictsWorkspace
+        caseId={data.caseId ?? ""}
+        data={conflictData}
       />
     );
     // The timeline page: its own panel carries the title, the count and Add Event.
@@ -732,20 +841,34 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
                 </p>
                 {eventError && <p role="alert" className="text-xs text-[#B91C1C] mt-1">{eventError}</p>}
               </div>
-              <button
-                onClick={() => { setEventError(null); setEventForm({ mode: "add" }); }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand hover:bg-deep text-white rounded-lg text-xs font-semibold transition-all shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5" strokeWidth={2} /> Add Event
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {events.length > 0 && <TimelineFiltersButton open={filtersOpen} value={timelineFilter} onToggle={() => setFiltersOpen((o) => !o)} />}
+                <button
+                  onClick={() => { setEventError(null); setEventForm({ mode: "add" }); }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand hover:bg-deep text-white rounded-lg text-xs font-semibold transition-all shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" strokeWidth={2} /> Add Event
+                </button>
+              </div>
             </div>
+
+            {events.length > 0 && <TimelineFilterBar events={events} value={timelineFilter} onChange={setTimelineFilter} open={filtersOpen} />}
+            {filterActive(timelineFilter) && events.length > 0 && (
+              <p className="text-xs text-[#5B6B78] mb-3" aria-live="polite">
+                Showing {shownEvents.length} of {events.length} {events.length === 1 ? "event" : "events"} · <button type="button" onClick={() => setTimelineFilter(NO_FILTER)} className="font-semibold text-deep hover:underline">Clear filters</button>
+              </p>
+            )}
 
             <div className="relative">
               {events.length === 0 && (
                 <p className="secondary-text py-6 text-center border border-dashed border-line rounded-lg">No events on the timeline. Add one, or restore removed events.</p>
               )}
-              {events.map((ev, i) => {
-                const isLast = i === events.length - 1;
+              {events.length > 0 && shownEvents.length === 0 && (
+                <p className="secondary-text py-6 text-center border border-dashed border-line rounded-lg">No events match these filters.</p>
+              )}
+              {shownEvents.map((ev, si) => {
+                const i = events.indexOf(ev);
+                const isLast = si === shownEvents.length - 1;
                 return (
                   <div key={ev.id} className="relative flex gap-3 pb-3 last:pb-0">
                     {/* Marker + connector line */}
@@ -933,10 +1056,21 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
   const defendantNote = defendants
     ? `${defendants.candidates.length} potential defendants · ${defendantDecisions?.confirmedAt ? "decisions confirmed" : "awaiting attorney decisions"}`
     : undefined;
+  // Insurance facts come only from the policy document on file for this case.
+  const policy = resolveCasePolicy(data, documents);
+  // The policy fields open on request, so the card keeps the height of its row.
+  const [policyOpen, setPolicyOpen] = useState(false);
+  const limits = [policy.occurrenceLimit && `${policy.occurrenceLimit} per occurrence`, policy.aggregateLimit && `${policy.aggregateLimit} aggregate`].filter((x): x is string => !!x);
+  const insuranceFacts = ([
+    ["Policy", policy.policyType ? [policy.policyType] : []],
+    ["Policy Number", policy.policyNo ? [policy.policyNo] : []],
+    ["Limits", limits],
+    ["Period", policy.period ? [policy.period] : []],
+  ] as [string, string[]][]).filter(([, v]) => v.length);
   const summaryRows: { icon: any; label: string; value?: string; note?: string; onClick?: () => void; hint?: string }[] = [
     { icon: User, label: "Plaintiff", value: data.plaintiff },
     { icon: Building2, label: "Defendant", value: DEFENDANT, note: defendantNote, onClick: onOpenDefendants ? () => onOpenDefendants(DEFENDANT) : undefined, hint: "Open the Defendant Analysis" },
-    { icon: Shield, label: "Insurance Carrier", value: "ABC Professional Liability Insurance" },
+    { icon: Shield, label: "Insurance Carrier", value: policy.insurer ?? POLICY_UNAVAILABLE, onClick: onOpenInsurance, hint: "Open the Insurance Policy Analysis" },
     { icon: Scale, label: "Jurisdiction", value: data.jurisdiction, onClick: onOpenJurisdiction, hint: "Open the Attorney Jurisdiction Review" },
     { icon: Gavel, label: "Governing Law", value: law.value, note: law.note },
   ];
@@ -953,7 +1087,7 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
               className="flex items-center gap-2 secondary-text hover:text-ink transition-colors"
             >
               <ChevronLeft className="w-4 h-4" strokeWidth={1.75} />
-              {detail && !liabilityPage ? "Back to Analysis" : "Back to Case Intake"}
+              {detail && !liabilityPage ? backText : "Back to Case Intake"}
             </button>
             {liabilityPage ? null : detail ? (
               <div className="secondary-text ml-auto flex items-center gap-2 min-w-0">
@@ -973,7 +1107,7 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
         </div>
       </div>
 
-      <StageNavigator currentStage="Analysis" onStageClick={onStageClick} />
+      <StageNavigator currentStage={detail && returnTo === "case-ready" ? "Case Ready" : "Analysis"} onStageClick={onStageClick} />
 
       <div className={`max-w-[1400px] mx-auto px-8 ${liabilityPage ? "pt-5 pb-8" : "py-8"} space-y-8`}>
         {detail ? (liabilityPage ? (
@@ -981,12 +1115,12 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
             <div className="flex items-center justify-between gap-x-4 gap-y-2 flex-wrap">
               <button onClick={onBackToAnalysis} className="-ml-2 inline-flex items-center gap-2.5 rounded-lg px-2 py-1 text-sm font-medium text-ink/80 hover:text-deep hover:bg-tint transition-colors">
                 <ChevronLeft className="w-4 h-4" strokeWidth={2} />
-                Back to Analysis
+                {backText}
               </button>
               <nav aria-label="Breadcrumb" className="secondary-text flex items-center gap-2 min-w-0 ml-auto">
                 <span className="truncate">{data.caseName}</span>
                 <ChevronRight className="w-3.5 h-3.5 text-[#9BA8B4] shrink-0" strokeWidth={1.75} />
-                <button onClick={onBackToAnalysis} className="secondary-text shrink-0 hover:text-ink transition-colors">Analysis</button>
+                <button onClick={onBackToAnalysis} className="secondary-text shrink-0 hover:text-ink transition-colors">{crumb}</button>
                 <ChevronRight className="w-3.5 h-3.5 text-[#9BA8B4] shrink-0" strokeWidth={1.75} />
                 <span className="text-ink font-medium shrink-0" aria-current="page">{DETAIL_META[detail].title}</span>
               </nav>
@@ -1080,12 +1214,38 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
                 <p className="text-sm font-semibold text-ink leading-snug">Physical Therapy Associates</p>
               </div>
 
-              <div className="lg-zone lg-zone-grey px-3.5 py-2.5">
+              <div className="lg-zone lg-zone-grey px-3.5 py-2.5 min-w-0" title={policy.fileName ? `From ${policy.fileName}` : undefined}>
                 <div className="eyebrow flex items-center gap-1.5 mb-1">
                   <Shield className="w-4 h-4 text-deep" strokeWidth={1.75} />
-                  Verified Evidence
+                  Insurance Highlights
                 </div>
-                <p className="text-sm font-semibold text-ink leading-snug">{verifiedCount} <span className="font-medium text-[#5B6B78]">Documents</span></p>
+                {policy.fileName ? (
+                  <>
+                    <p className="text-sm font-semibold text-ink leading-snug">{policy.insurer ?? "Carrier not stated"}</p>
+                    {policy.coverageStatus && (
+                      <span className={`inline-flex items-center mt-1 rounded-full border px-2 text-[11px] font-semibold leading-[18px] ${/active|in force/i.test(policy.coverageStatus) ? "bg-[#ECFDF3] text-[#15803D] border-[#D1FADF]" : "bg-[#FFF7ED] text-[#B45309] border-[#FDE6C8]"}`}>{policy.coverageStatus}</span>
+                    )}
+                    {insuranceFacts.length > 0 && (
+                      <button type="button" onClick={() => setPolicyOpen((o) => !o)} aria-expanded={policyOpen} aria-controls="policy-details"
+                        className="mt-2 flex items-center gap-1 text-xs font-semibold text-deep hover:text-ink">
+                        {policyOpen ? "Hide policy details" : "View policy details"}
+                        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${policyOpen ? "rotate-180" : ""}`} strokeWidth={2} />
+                      </button>
+                    )}
+                    {policyOpen && insuranceFacts.length > 0 && (
+                      <dl id="policy-details" className="mt-2 pt-2 border-t border-[#E4E6E8] space-y-1.5">
+                        {insuranceFacts.map(([k, v]) => (
+                          <div key={k}>
+                            <dt className="text-[10.5px] font-semibold uppercase tracking-[0.04em] text-[#5B6B78] leading-[14px]">{k}</dt>
+                            <dd className="text-xs text-ink leading-4 min-w-0">{v.map((line) => <span key={line} className="block">{line}</span>)}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-xs text-[#8A98A3] italic leading-snug">No policy document on file. {POLICY_UNAVAILABLE}</p>
+                )}
               </div>
 
               <div className="lg-zone lg-zone-grey px-3.5 py-2.5">
@@ -1151,17 +1311,25 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
 
         </div>{/* end Summary + Findings grid */}
 
-        {/* ── Evidence Verification + Analysis Complete (80 / 20) ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-[80fr_20fr] gap-6 items-start">
+        {/* ── Analysis Complete (20, left) + Evidence Verification (80, right) ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-[20fr_80fr] gap-6 items-start">
 
-        {/* LEFT (80%) — Evidence Verification (the tall, scrolling column) */}
-        <div className="space-y-8 min-w-0 lg:order-1">
+        {/* RIGHT (80%) — Evidence Verification (the tall, scrolling column) */}
+        <div className="space-y-8 min-w-0 lg:order-2">
 
         {/* ── Evidence Verification ── */}
-        <div id="evidence-verification" className="lg-card !p-0 overflow-hidden scroll-mt-[150px]">
-          <div className="px-6 py-5 border-b border-line">
-            <h2 className="section-header">Evidence Verification</h2>
-            <p className="secondary-text mt-0.5">Inspect the source documents used during analysis.</p>
+        <div id="evidence-verification" className="lg-card !p-0 scroll-mt-[150px]">
+          <div className="px-6 py-4 border-b border-line flex items-center justify-between gap-4 flex-wrap">
+            <div className="min-w-0">
+              <h2 className="section-header">Evidence Verification</h2>
+              <p className="secondary-text mt-0.5">Inspect the source documents used during analysis.</p>
+            </div>
+            <EvidenceFilters
+              docs={verifiedDocuments}
+              type={evType} category={evCategory}
+              onType={setEvType} onCategory={setEvCategory}
+              shown={shownDocuments.length}
+            />
           </div>
           <table className="w-full">
             <thead className="bg-wash border-b border-line">
@@ -1173,7 +1341,12 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {verifiedDocuments.map((doc, i) => (
+              {shownDocuments.length === 0 && (
+                <tr><td colSpan={4} className="px-6 py-8 text-center secondary-text">
+                  {verifiedDocuments.length ? <>No documents match these filters. <button type="button" onClick={() => { setEvType("All"); setEvCategory("All"); }} className="font-semibold text-deep hover:text-ink">Reset filters</button></> : "No documents on this case yet."}
+                </td></tr>
+              )}
+              {shownDocuments.map((doc, i) => (
                 <tr key={doc.id} className="lg-row transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2.5">
@@ -1200,8 +1373,8 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
                       const actions = (
                         <DocActions
                           size="row"
-                          onPreview={() => openSets(verifiedDocuments.map((d) => [d]), verifiedDocuments.map((d) => ({ contextType: "Document", reference: d.name })), i, "preview")}
-                          onInsights={() => openSets(verifiedDocuments.map((d) => [d]), verifiedDocuments.map((d) => ({ contextType: "Document", reference: d.name })), i, "insights")}
+                          onPreview={() => openSets(shownDocuments.map((d) => [d]), shownDocuments.map((d) => ({ contextType: "Document", reference: d.name })), i, "preview")}
+                          onInsights={() => openSets(shownDocuments.map((d) => [d]), shownDocuments.map((d) => ({ contextType: "Document", reference: d.name })), i, "insights")}
                           onDownload={() => { if (doc.storageKey) void downloadMediaFile(doc.storageKey, doc.name); }}
                           disabled={{ download: doc.storageKey ? undefined : "The original file is not stored in this browser" }}
                         />
@@ -1221,8 +1394,8 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
 
         </div>{/* end evidence column */}
 
-        {/* RIGHT (20%) — Analysis Complete: sticky progress + navigation panel */}
-        <div className="lg:order-2 lg:sticky lg:top-[150px] self-start">
+        {/* LEFT (20%) — Analysis Complete: sticky progress + navigation panel */}
+        <div className="lg:order-1 lg:sticky lg:top-[150px] self-start">
           <div className="lg-card p-5">
             {/* Header */}
             <div className="flex items-center gap-2.5 mb-4">

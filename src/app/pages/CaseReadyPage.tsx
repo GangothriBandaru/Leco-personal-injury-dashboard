@@ -3,8 +3,10 @@ import { StageNavigator } from "../components/StageNavigator";
 import {
   ChevronLeft, CheckCircle, ChevronDown, ChevronRight,
   ExternalLink, BarChart2,
-  ArrowRight, Flag, Circle, Shield, Users
+  ArrowRight, Flag, Circle, Shield, Users, Scale, Stethoscope, Gavel, CalendarDays, Landmark
 } from "lucide-react";
+import { useAnalysisCounts, type AnalysisDetail } from "./AnalysisPage";
+import { governingLawSummary } from "../jurisdiction/jurisdictionData";
 import { DELIVERABLES, type DeliverableKind } from "./DeliverablePage";
 import { defendantsForCase } from "../defendants/defendantData";
 import { useDefendantDecisions } from "../defendants/defendantDecisionStore";
@@ -34,6 +36,12 @@ interface CaseReadyPageProps {
   onOpenDeliverable?: (kind: DeliverableKind) => void;
   /** Opens the Defendant Analysis — the same page Analysis opens. */
   onOpenDefendants?: () => void;
+  /** Opens one of the Analysis findings pages, returning here. */
+  onOpenAnalysisDetail?: (detail: AnalysisDetail) => void;
+  /** Opens the Attorney Jurisdiction Review, returning here. */
+  onOpenJurisdiction?: () => void;
+  /** The governing law the attorney approved, if any. */
+  governingLaw?: string;
   /** Section to bring into view on arrival — used when returning from a sub-page. */
   scrollToSection?: string;
 }
@@ -51,7 +59,24 @@ const CHECKLIST_DETAILS: Record<string, string> = {
 // The four deliverables — the same list their dedicated pages are built from.
 const deliverables = DELIVERABLES.map((d) => ({ ...d, color: "bg-tint text-deep" }));
 
-export function CaseReadyPage({ caseData, pipeline, onStageClick, onBackToIntake, onOpenWorkspace, onOpenInsurance, onOpenDeliverable, onOpenDefendants, scrollToSection }: CaseReadyPageProps) {
+export function CaseReadyPage({ caseData, pipeline, onStageClick, onBackToIntake, onOpenWorkspace, onOpenInsurance, onOpenDeliverable, onOpenDefendants, onOpenAnalysisDetail, onOpenJurisdiction, governingLaw, scrollToSection }: CaseReadyPageProps) {
+  // The Analysis Findings, as deliverables — the same counts the Analysis stage shows.
+  const counts = useAnalysisCounts(caseData?.caseId, pipeline?.documents ?? []);
+  const law = governingLawSummary(caseData?.caseId, caseData?.jurisdiction, governingLaw);
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const analysisCards: { id: string; title: string; category: string; icon: any; description: string; count?: number; meta: string; onOpen?: () => void }[] = [
+    { id: "liability", title: "Liability Signals", category: "Liability", icon: Scale, count: counts.liability, meta: plural(counts.liability, "finding", "findings"),
+      description: "Key findings identifying potential liability and the evidence supporting each finding.", onOpen: () => onOpenAnalysisDetail?.("liability") },
+    { id: "injury", title: "Injury Signals", category: "Medical", icon: Stethoscope, count: counts.injury, meta: plural(counts.injury, "finding", "findings"),
+      description: "Key injury findings, medical evidence, and documented impacts relevant to the case.", onOpen: () => onOpenAnalysisDetail?.("injury") },
+    { id: "violations", title: "Violation Analysis", category: "Analysis", icon: Gavel, count: counts.violations, meta: plural(counts.violations, "violation", "violations"),
+      description: "Identified violations, supporting evidence, and their relevance to potential liability.", onOpen: () => onOpenAnalysisDetail?.("violations") },
+    { id: "timeline", title: "Case Timeline Overview", category: "Timeline", icon: CalendarDays, count: counts.events, meta: plural(counts.events, "key event", "key events"),
+      description: "Key events extracted from the case timeline, with supporting evidence for each event.", onOpen: () => onOpenAnalysisDetail?.("timeline") },
+    { id: "jurisdiction", title: "Jurisdiction Analysis", category: "Jurisdiction", icon: Landmark,
+      meta: [caseData?.jurisdiction, law.value].filter(Boolean).join(" · ") || "Not provided",
+      description: "Jurisdiction details, applicable governing law, relevant legal limitations, and jurisdiction-specific considerations.", onOpen: onOpenJurisdiction },
+  ];
   const defendants = defendantsForCase(caseData?.caseId ?? "PI-2024-001");
   const defendantDecisions = useDefendantDecisions(defendants?.id);
   // Returning from a sub-page lands back on the deliverable it was opened from.
@@ -147,51 +172,36 @@ export function CaseReadyPage({ caseData, pipeline, onStageClick, onBackToIntake
           </div>
         </div>
 
-        {/* ── 2. CASE INTELLIGENCE SNAPSHOT ── */}
-        <div className="lg-card p-6">
-          <h2 className="section-header mb-5">Case Intelligence Snapshot</h2>
-          <div className="grid grid-cols-3 gap-4">
-            {/* Confidence Score */}
-            <div className="lg-zone lg-zone-grey rounded-xl p-5 flex flex-col">
-              <div className="eyebrow mb-3">Confidence Score</div>
-              <div className="kpi-value mb-3">94%</div>
-              <div className="mt-auto">
-                <span className="pill pill-complete">
-                  <CheckCircle className="w-3.5 h-3.5" strokeWidth={1.75} /> High Confidence
-                </span>
-              </div>
-            </div>
+        {/* ── 2. SNAPSHOT + CHECKLIST (left) · DELIVERABLES (right) ──
+            The left cards keep their own height; the deliverables panel
+            stretches to the left column's combined height. */}
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,31fr)_minmax(0,69fr)] gap-8 items-stretch">
 
-            {/* Estimated Range */}
-            <div className="lg-zone lg-zone-grey rounded-xl p-5 flex flex-col">
-              <div className="eyebrow mb-3">Estimated Range</div>
-              <div className="kpi-value mb-1 leading-tight">$968K</div>
-              <div className="mono-ref mb-3">– $1,372K</div>
-              <div className="mt-auto">
-                <span className="pill pill-neutral">
-                  <BarChart2 className="w-3.5 h-3.5" strokeWidth={1.75} /> Settlement Range
-                </span>
-              </div>
-            </div>
-
-            {/* Critical Risks */}
-            <div className="lg-zone lg-zone-grey rounded-xl p-5 flex flex-col">
-              <div className="eyebrow mb-3">Critical Risks</div>
-              <div className="kpi-value mb-3">2</div>
-              <div className="mt-auto">
-                <span className="pill pill-risk">
-                  <Flag className="w-3.5 h-3.5" strokeWidth={1.75} /> Review Required
-                </span>
-              </div>
+          <div className="flex flex-col gap-8 min-w-0">
+          {/* Case Intelligence Snapshot — the three metrics as compact rows */}
+          <div className="lg-card p-5">
+            <h2 className="section-header mb-4">Case Intelligence Snapshot</h2>
+            <div className="space-y-3">
+              {([
+                { label: "Confidence Score", value: "94%", pill: "pill-complete", Icon: CheckCircle, note: "High Confidence" },
+                { label: "Estimated Range", value: "$968K – $1,372K", pill: "pill-neutral", Icon: BarChart2, note: "Settlement Range" },
+                { label: "Critical Risks", value: "2", pill: "pill-risk", Icon: Flag, note: "Review Required" },
+              ]).map(({ label, value, pill, Icon, note }) => (
+                <div key={label} className="lg-zone lg-zone-grey rounded-xl px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="eyebrow mb-1">{label}</div>
+                    <div className="text-[20px] font-bold text-ink leading-tight tabular-nums whitespace-nowrap">{value}</div>
+                  </div>
+                  <span className={`pill ${pill} mt-2`}>
+                    <Icon className="w-3.5 h-3.5" strokeWidth={1.75} /> {note}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
-        </div>
 
-        {/* ── 3. CHECKLIST + DELIVERABLES ── */}
-        <div className="grid grid-cols-5 gap-8 items-start">
-
-          {/* LEFT — Checklist (40%) */}
-          <div className="col-span-2 lg-card overflow-hidden">
+          {/* Case Readiness Checklist */}
+          <div className="lg-card overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-line">
               <h2 className="section-header">Case Readiness Checklist</h2>
               <span className="pill pill-neutral">
@@ -246,16 +256,19 @@ export function CaseReadyPage({ caseData, pipeline, onStageClick, onBackToIntake
             </div>
           </div>
 
-          {/* RIGHT (60%) — Generated Deliverables, Insurance among them */}
-          <div className="col-span-3 space-y-6">
-          <div id="generated-deliverables" className="lg-card overflow-hidden scroll-mt-[150px]">
+          </div>{/* end left column */}
+
+          {/* RIGHT — Generated Deliverables: on wide screens exactly the left column's
+              height (the row is sized by the left column), its cards scrolling inside. */}
+          <div className="min-w-0 relative">
+          <div id="generated-deliverables" className="lg-card overflow-hidden scroll-mt-[150px] flex flex-col lg:absolute lg:inset-0">
             <div className="flex items-center justify-between px-6 py-4 border-b border-line">
               <h2 className="section-header">Generated Deliverables</h2>
               {/* Counted: the deliverables, Insurance and Defendant Analysis. */}
-              <span className="secondary-text">{DELIVERABLES.length + 2} documents ready</span>
+              <span className="secondary-text">{DELIVERABLES.length + 2 + analysisCards.length} deliverables ready</span>
             </div>
 
-            <div className="p-6 grid grid-cols-2 gap-4">
+            <div className="p-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 content-start lg:flex-1 lg:min-h-0 lg:overflow-y-auto">
               {deliverables.map((item) => (
                 <div
                   key={item.title}
@@ -263,9 +276,9 @@ export function CaseReadyPage({ caseData, pipeline, onStageClick, onBackToIntake
                   tabIndex={0}
                   onClick={() => onOpenDeliverable?.(item.kind)}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenDeliverable?.(item.kind); } }}
-                  className="lg-card lg-card-i p-4 flex flex-col cursor-pointer"
+                  className="lg-card lg-card-i p-3.5 flex flex-col cursor-pointer"
                 >
-                  <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-start justify-between mb-2.5">
                     <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${item.color}`}>
                       <item.icon className="w-3.5 h-3.5" strokeWidth={1.75} />
                       {item.category}
@@ -273,7 +286,7 @@ export function CaseReadyPage({ caseData, pipeline, onStageClick, onBackToIntake
                   </div>
                   <h3 className="card-title mb-1">{item.title}</h3>
                   <p className="secondary-text leading-relaxed flex-1">{item.description}</p>
-                  <div className="flex items-center justify-between mt-4 pt-3 border-t border-line">
+                  <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-line">
                     <span className="mono-ref">{item.date}</span>
                     <button
                       onClick={(e) => { e.stopPropagation(); onOpenDeliverable?.(item.kind); }}
@@ -288,8 +301,8 @@ export function CaseReadyPage({ caseData, pipeline, onStageClick, onBackToIntake
               {/* Insurance Policy Analysis — the fifth deliverable, one column
                   wide beneath Case Summary, opening the insurance analysis
                   Stage 2 produced. */}
-              <div id="insurance-deliverable" className="lg-card lg-card-i p-4 flex flex-col scroll-mt-[150px]">
-                <div className="flex items-start justify-between mb-3">
+              <div id="insurance-deliverable" className="lg-card lg-card-i p-3.5 flex flex-col scroll-mt-[150px]">
+                <div className="flex items-start justify-between mb-2.5">
                   <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-tint text-deep">
                     <Shield className="w-3.5 h-3.5" strokeWidth={1.75} />
                     Insurance
@@ -299,7 +312,7 @@ export function CaseReadyPage({ caseData, pipeline, onStageClick, onBackToIntake
                 <p className="secondary-text leading-relaxed flex-1">
                   Legal validity, coverage, limits, red flags, liens and insurer profile in one attorney-ready view.
                 </p>
-                <div className="flex items-center justify-between mt-4 pt-3 border-t border-line">
+                <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-line">
                   <span className="mono-ref">{INSURANCE_ANALYSIS.analysedOn}</span>
                   <button
                     onClick={onOpenInsurance}
@@ -317,9 +330,9 @@ export function CaseReadyPage({ caseData, pipeline, onStageClick, onBackToIntake
                 tabIndex={0}
                 onClick={onOpenDefendants}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenDefendants?.(); } }}
-                className="lg-card lg-card-i p-4 flex flex-col cursor-pointer scroll-mt-[150px]"
+                className="lg-card lg-card-i p-3.5 flex flex-col cursor-pointer scroll-mt-[150px]"
               >
-                <div className="flex items-start justify-between mb-3">
+                <div className="flex items-start justify-between mb-2.5">
                   <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-tint text-deep">
                     <Users className="w-3.5 h-3.5" strokeWidth={1.75} />
                     Liability
@@ -329,8 +342,8 @@ export function CaseReadyPage({ caseData, pipeline, onStageClick, onBackToIntake
                 <p className="secondary-text leading-relaxed flex-1">
                   Review defendant identification, liability evidence, relationships between responsible parties, investigation priorities, and attorney decisions.
                 </p>
-                <div className="flex items-center justify-between mt-4 pt-3 border-t border-line">
-                  <span className="mono-ref">
+                <div className="flex items-center justify-between gap-2 mt-3 pt-2.5 border-t border-line">
+                  <span className="mono-ref truncate">
                     {!defendants ? "Not available for this case" : defendantDecisions?.confirmedAt ? `Decisions confirmed ${defendantDecisions.confirmedAt}` : "Awaiting attorney decisions"}
                   </span>
                   <button
@@ -341,6 +354,40 @@ export function CaseReadyPage({ caseData, pipeline, onStageClick, onBackToIntake
                   </button>
                 </div>
               </div>
+
+              {/* The Analysis Findings, each opening its Analysis page and returning here. */}
+              {analysisCards.map((item) => (
+                <div
+                  key={item.id}
+                  id={`${item.id}-deliverable`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={item.onOpen}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); item.onOpen?.(); } }}
+                  className="lg-card lg-card-i p-3.5 flex flex-col cursor-pointer scroll-mt-[150px]"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2.5">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-tint text-deep">
+                      <item.icon className="w-3.5 h-3.5" strokeWidth={1.75} />
+                      {item.category}
+                    </div>
+                    {item.count !== undefined && (
+                      <span className="text-xs font-semibold text-deep bg-white border border-[#D6F2F7] rounded-full px-2 py-0.5 tabular-nums">{item.count}</span>
+                    )}
+                  </div>
+                  <h3 className="card-title mb-1">{item.title}</h3>
+                  <p className="secondary-text leading-relaxed flex-1">{item.description}</p>
+                  <div className="flex items-center justify-between gap-2 mt-3 pt-2.5 border-t border-line">
+                    <span className="mono-ref truncate" title={item.meta}>{item.meta}</span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); item.onOpen?.(); }}
+                      className="flex items-center gap-1 text-xs font-medium text-deep hover:text-ink transition-colors shrink-0"
+                    >
+                      Open <ExternalLink className="w-3.5 h-3.5" strokeWidth={1.75} />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
           </div>

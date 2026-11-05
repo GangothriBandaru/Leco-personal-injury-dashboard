@@ -46,6 +46,9 @@ interface Props {
   onDecisionChange: (next: AttorneyDecision) => void;
   onBack: () => void;
   onStageClick?: (stageName: string) => void;
+  /** Where Back goes, as the attorney reads it; the stage shown with it. */
+  backLabel?: string;
+  stage?: string;
 }
 
 // ── Shared pieces ────────────────────────────────────────────────────────────
@@ -634,7 +637,7 @@ function DecisionPanel({
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-export function JurisdictionReviewPage({ caseData, decision: stored, onDecisionChange, onBack, onStageClick }: Props) {
+export function JurisdictionReviewPage({ caseData, decision: stored, onDecisionChange, onBack, onStageClick, backLabel = "Back to Analysis", stage = "Analysis" }: Props) {
   const model = useWorkspaceModel(caseData);
   const caseRef = caseData?.caseId ?? model.caseId;
   const record = jurisdictionForCase(caseRef);
@@ -685,7 +688,7 @@ export function JurisdictionReviewPage({ caseData, decision: stored, onDecisionC
           <div className="flex items-center gap-4">
             <button onClick={onBack} className="flex items-center gap-2 secondary-text hover:text-ink transition-colors">
               <ChevronLeft className="w-4 h-4" strokeWidth={1.75} />
-              Back to Analysis
+              {backLabel}
             </button>
             <div className="secondary-text ml-auto flex items-center gap-2 min-w-0">
               <span className="shrink-0">Case Intake</span>
@@ -698,7 +701,7 @@ export function JurisdictionReviewPage({ caseData, decision: stored, onDecisionC
         </div>
       </div>
 
-      <StageNavigator currentStage="Analysis" onStageClick={onStageClick} />
+      <StageNavigator currentStage={stage} onStageClick={onStageClick} />
 
       <div className="max-w-[1400px] mx-auto px-8 py-8 space-y-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { JurisdictionalCapCard } from "../valuation/JurisdictionalCapCard";
 import { FileTypeIcon, FileTypeTag } from "../components/fileType";
 import { StageNavigator } from "../components/StageNavigator";
 import { ChevronLeft, ChevronRight, CheckCircle, ArrowRight, DollarSign, Shield, AlertCircle, Sparkles, ChevronDown, FileText, Eye, X, ChevronUp, Plus, Pencil, Trash2, History, UserPlus } from "lucide-react";
@@ -33,6 +34,8 @@ interface ValuationPageProps {
   analysisFindings?: AnalysisFinding[];
   /** The case's documents — the only ones a drafted damage can cite. */
   documents?: CaseDocument[];
+  /** The governing law the attorney approved, if any. */
+  governingLaw?: string;
   onStageClick?: (stageName: string) => void;
   onBackToIntake?: () => void;
   onReturnToAnalysis?: () => void;
@@ -591,7 +594,7 @@ function FactorFormModal({
   );
 }
 
-export function ValuationPage({ caseData, analysisFindings = [], documents = [], onStageClick, onBackToIntake, onReturnToAnalysis, onProceedToCaseReady }: ValuationPageProps) {
+export function ValuationPage({ caseData, governingLaw, analysisFindings = [], documents = [], onStageClick, onBackToIntake, onReturnToAnalysis, onProceedToCaseReady }: ValuationPageProps) {
   const [multiplier, setMultiplier] = useState(baseMultiplier);
   // Damage Factors accordion — collapsed by default.
   const [damageFactorsOpen, setDamageFactorsOpen] = useState(false);
@@ -1093,6 +1096,9 @@ export function ValuationPage({ caseData, analysisFindings = [], documents = [],
                       <strong className="font-semibold text-ink">Non-Economic Damages</strong> based on the verified case evidence and overall case strength.
                     </p>
                   </div>
+
+                  {/* The jurisdiction's cap, for reference — it never changes the estimate. */}
+                  <JurisdictionalCapCard caseData={caseData} governingLaw={governingLaw} />
 
                   {/* Damage Factors — collapsible breakdown of what the multiplier covers */}
                   <div className="border border-line rounded-xl overflow-hidden">

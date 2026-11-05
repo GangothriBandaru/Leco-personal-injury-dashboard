@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { DashboardSidebar } from "./components/DashboardSidebar";
-import { DashboardTopbar } from "./components/DashboardTopbar";
+import { DashboardTopbar, DocumentTrackerButton } from "./components/DashboardTopbar";
+import { Toaster } from "./components/ui/sonner";
+import { DocumentTrackerPage } from "./pages/DocumentTrackerPage";
 import { GlobalCaseRepoPage } from "./pages/GlobalCaseRepoPage";
 import { ClientsPage } from "./pages/ClientsPage";
 import { CommunicationPage } from "./pages/CommunicationPage";
@@ -79,9 +81,18 @@ function buildPipelineForCase(caseData: any): PipelineState {
   };
 }
 
+const NAV_STAGE: Record<string, string> = { Collection: "Client Intake", Analysis: "Analysis", Valuation: "Valuation", "Case Ready": "Case Ready" };
+
 export default function App() {
   const [activePage, setActivePage] = useState("intake");
   const [selectedCase, setSelectedCase] = useState<any>(null);
+  // The page the Document Tracker was opened from, which it returns to.
+  const [trackerReturn, setTrackerReturn] = useState("workflow");
+  const openDocumentTracker = () => {
+    if (activePage !== "tracker") setTrackerReturn(activePage);
+    setActivePage("tracker");
+    document.querySelector("main")?.scrollTo(0, 0);
+  };
   const [pipeline, setPipeline] = useState<PipelineState>(INITIAL_PIPELINE);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // Section of the stage page to land on when returning from a sub-page.
@@ -110,8 +121,8 @@ export default function App() {
   // "analysis-detail": opened from the Liability Analysis workspace, and returns to it.
   const [defendantOrigin, setDefendantOrigin] = useState<"analysis" | "analysis-detail" | "case-ready">("analysis");
   // Where the Jurisdiction review returns to — the stage, or the Liability Analysis workspace.
-  const [jurisdictionReturn, setJurisdictionReturn] = useState<"analysis" | "analysis-detail">("analysis");
-  const openJurisdictionFrom = (origin: "analysis" | "analysis-detail") => {
+  const [jurisdictionReturn, setJurisdictionReturn] = useState<"analysis" | "analysis-detail" | "case-ready">("analysis");
+  const openJurisdictionFrom = (origin: "analysis" | "analysis-detail" | "case-ready") => {
     setJurisdictionReturn(origin);
     setActivePage("jurisdiction");
   };
@@ -136,11 +147,17 @@ export default function App() {
     setReturnToSection("generated-deliverables");
     setActivePage("case-ready");
   };
-  const openAnalysisDetail = (d: AnalysisDetail) => {
+  // Where an Analysis findings page returns to: the stage, or Case Ready's deliverables.
+  // Moving between findings pages keeps the origin.
+  const [analysisDetailReturn, setAnalysisDetailReturn] = useState<"analysis" | "case-ready">("analysis");
+  const openAnalysisDetail = (d: AnalysisDetail, origin?: "analysis" | "case-ready") => {
+    if (origin) setAnalysisDetailReturn(origin);
+    else if (activePage !== "analysis-detail") setAnalysisDetailReturn("analysis");
     setAnalysisDetail(d);
     setActivePage("analysis-detail");
   };
   const backToAnalysis = () => {
+    if (activePage === "analysis-detail" && analysisDetailReturn === "case-ready") return backToCaseReady();
     setReturnToSection("analysis-deliverables");
     setActivePage("analysis");
   };
@@ -298,6 +315,7 @@ export default function App() {
             onOpenDefendants={(name) => openDefendantsFrom("analysis-detail", name)}
             governingLaw={jurisdictionDecision?.status === "approved" ? jurisdictionDecision.governingLaw : undefined}
             detail={analysisDetail}
+            returnTo={analysisDetailReturn}
             onBackToAnalysis={backToAnalysis}
             onOpenDetail={openAnalysisDetail}
             onDocumentsUpdate={(fn) => setPipeline((prev) => ({ ...prev, documents: fn(prev.documents) }))}
@@ -311,7 +329,9 @@ export default function App() {
             caseData={selectedCase}
             decision={jurisdictionDecision}
             onDecisionChange={(next) => setJurisdictionDecisions((prev) => ({ ...prev, [caseKey]: next }))}
-            onBack={() => setActivePage(jurisdictionReturn)}
+            onBack={() => { if (jurisdictionReturn === "case-ready") setReturnToSection("generated-deliverables"); setActivePage(jurisdictionReturn); }}
+            backLabel={jurisdictionReturn === "case-ready" ? "Back to Case Ready" : "Back to Analysis"}
+            stage={jurisdictionReturn === "case-ready" ? "Case Ready" : "Analysis"}
             onStageClick={handleStageNavigation}
           />
         );
@@ -351,6 +371,7 @@ export default function App() {
         return (
           <ValuationPage
             caseData={selectedCase}
+            governingLaw={jurisdictionDecision?.status === "approved" ? jurisdictionDecision.governingLaw : undefined}
             documents={pipeline.documents}
             analysisFindings={analysisFindings}
             onStageClick={handleStageNavigation}
@@ -374,6 +395,9 @@ export default function App() {
             onOpenInsurance={() => openInsuranceFrom("case-ready")}
             onOpenDeliverable={openDeliverable}
             onOpenDefendants={() => openDefendantsFrom("case-ready")}
+            onOpenAnalysisDetail={(d) => openAnalysisDetail(d, "case-ready")}
+            onOpenJurisdiction={() => openJurisdictionFrom("case-ready")}
+            governingLaw={jurisdictionDecision?.status === "approved" ? jurisdictionDecision.governingLaw : undefined}
             scrollToSection={returnToSection}
           />
         );
@@ -410,6 +434,18 @@ export default function App() {
             onNavigateToValuation={() => setActivePage("valuation")}
           />
         );
+      case "tracker":
+        return selectedCase ? (
+          <DocumentTrackerPage
+            key={caseKey}
+            caseData={selectedCase}
+            documents={pipeline.documents}
+            stage={NAV_STAGE[STAGE_BY_PAGE[trackerReturn]] ?? "Client Intake"}
+            backLabel={`Back to ${trackerReturn === "workflow" ? "Collection" : PAGE_LABEL[trackerReturn] ?? "case"}`}
+            onBack={() => setActivePage(trackerReturn)}
+            onStageClick={handleStageNavigation}
+          />
+        ) : <CaseIntakePage onOpenWorkflow={handleOpenWorkflow} />;
       case "intake":
         return <CaseIntakePage onOpenWorkflow={handleOpenWorkflow} />;
       case "cases":
@@ -432,7 +468,8 @@ export default function App() {
     workflow: "Collection",
     classification: "Collection",
     analysis: "Analysis",
-    jurisdiction: "Analysis",
+    jurisdiction: jurisdictionReturn === "case-ready" ? "Case Ready" : "Analysis",
+    "analysis-detail": analysisDetailReturn === "case-ready" ? "Case Ready" : "Analysis",
     defendants: defendantOrigin === "case-ready" ? "Case Ready" : "Analysis",
     insurance: insuranceOrigin === "analysis" ? "Analysis" : "Case Ready",
     "insurance-detail": insuranceOrigin === "analysis" ? "Analysis" : "Case Ready",
@@ -441,6 +478,7 @@ export default function App() {
     deliverable: "Case Ready",
     workspace: "Case Ready",
   };
+  STAGE_BY_PAGE.tracker = STAGE_BY_PAGE[trackerReturn] ?? "";
   const currentStage = STAGE_BY_PAGE[activePage] ?? "";
   const currentCaseName = selectedCase?.caseName ?? "";
   // Human label for wherever the attorney currently is, for the assistant.
@@ -448,7 +486,7 @@ export default function App() {
     intake: "Case Intake", workflow: "Case Intake", classification: "Classification",
     analysis: "Analysis", jurisdiction: "Attorney Jurisdiction Review", defendants: "Defendant Analysis", valuation: "Valuation", "case-ready": "Case Ready", deliverable: "Case Ready",
     workspace: "Case Workspace", cases: "Case Workspace", clients: "Clients",
-    communication: "Communication", demands: "Demand Letters", templates: "Templates",
+    communication: "Communication", demands: "Demand Letters", templates: "Templates", tracker: "Document Tracker",
   };
 
   return (
@@ -474,7 +512,7 @@ export default function App() {
           onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
         />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <DashboardTopbar assistant={<AssistantLauncher />} />
+          <DashboardTopbar assistant={<div className="flex items-center gap-2"><DocumentTrackerButton onClick={openDocumentTracker} disabled={!selectedCase} /><AssistantLauncher /></div>} />
           <div className="flex-1 flex min-h-0 overflow-hidden">
             <AssistantMain>{renderPage()}</AssistantMain>
             <AssistantPanel />
@@ -482,6 +520,7 @@ export default function App() {
         </div>
       </div>
       <FloatingNotes />
+      <Toaster theme="light" position="bottom-center" duration={2000} />
       </AssistantProvider>
     </NotesProvider>
     </ViolationsProvider>
