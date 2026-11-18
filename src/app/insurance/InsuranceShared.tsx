@@ -1,7 +1,6 @@
-import {
-  ChevronLeft, Sparkles, CheckCircle, Shield, AlertTriangle, DollarSign, Zap,
-} from "lucide-react";
-import { INSURANCE_ANALYSIS, type Tone, type Metric } from "./insuranceData";
+import { ChevronLeft, Sparkles } from "lucide-react";
+
+export type Tone = "positive" | "warning" | "critical" | "info";
 
 // ── Shared pieces for the insurance pages ─────────────────────────────────────
 // Everything here maps onto the product's existing classes — pills, cards,
@@ -25,11 +24,6 @@ export const TONE_TEXT: Record<Tone, string> = {
   critical: "text-[#B91C1C]",
   info: "text-ink",
 };
-
-// The icon container every summary card uses — the dashboard's brand tint, the
-// same for all five so they read as one card system. Tone colours only the
-// figure itself, never the card or its icon.
-const BRAND_ICON_WRAP = "bg-tint text-deep";
 
 // The breadcrumb bar every Case Intake page carries: a back action on the left,
 // the trail on the right. Inside the Case Workspace it sits in the page content,
@@ -70,73 +64,6 @@ export function InsuranceBreadcrumb({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-// The five headline figures, shared by the summary and the detailed analysis.
-// Built on the dashboard's own summary card (components/SummaryCards): a card
-// with a tone-tinted icon container, an eyebrow label and a KPI value.
-const METRIC_ICON: Record<string, any> = {
-  "Case Viability": CheckCircle,
-  "Total Coverage": Shield,
-  "Red Flags": AlertTriangle,
-  "Net Recovery Est.": DollarSign,
-  "First Action": Zap,
-  "Net to Client": DollarSign,
-  "Risk Level": AlertTriangle,
-};
-
-const GRID_COLS: Record<number, string> = {
-  4: "lg:grid-cols-4",
-  5: "lg:grid-cols-5",
-};
-
-export function InsuranceSummaryCards({
-  metrics = INSURANCE_ANALYSIS.metrics, stacked = false,
-}: {
-  metrics?: Metric[];
-  /** A vertical stack of compact cards (icon beside the figure), for a side column. */
-  stacked?: boolean;
-}) {
-  if (stacked) {
-    // Grouped as the Case Intelligence Summary is: one white card holding the
-    // figures as light-gray zones, rather than five separate floating cards.
-    return (
-      <div id="insurance-summary-cards" className="lg-card p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
-        {metrics.map((m) => {
-          const Icon = METRIC_ICON[m.label] ?? Shield;
-          return (
-            <div key={m.label} className="lg-zone lg-zone-grey p-4 flex items-start gap-3">
-              <div className={`p-2 rounded-lg shrink-0 ${BRAND_ICON_WRAP}`}>
-                <Icon className="w-4 h-4" strokeWidth={1.75} />
-              </div>
-              <div className="min-w-0">
-                <div className="eyebrow mb-1">{m.label}</div>
-                <div className={`kpi-value !text-[18px] leading-tight ${TONE_TEXT[m.tone]}`}>{m.value}</div>
-                {m.note && <p className="secondary-text mt-1 leading-snug">{m.note}</p>}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
-  return (
-    <div id="insurance-summary-cards" className={`grid grid-cols-1 sm:grid-cols-2 ${GRID_COLS[metrics.length] ?? "lg:grid-cols-5"} gap-4`}>
-      {metrics.map((m) => {
-        const Icon = METRIC_ICON[m.label] ?? Shield;
-        return (
-          <div key={m.label} className="lg-card p-5 flex flex-col">
-            <div className={`p-2.5 rounded-lg self-start mb-4 ${BRAND_ICON_WRAP}`}>
-              <Icon className="w-5 h-5" strokeWidth={1.75} />
-            </div>
-            <div className="eyebrow mb-2">{m.label}</div>
-            <div className={`kpi-value !text-[22px] leading-tight ${TONE_TEXT[m.tone]}`}>{m.value}</div>
-            {m.note && <p className="secondary-text mt-1.5 leading-snug">{m.note}</p>}
-          </div>
-        );
-      })}
     </div>
   );
 }

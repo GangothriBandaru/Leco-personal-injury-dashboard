@@ -10,7 +10,7 @@ import { TimelineFilterBar, TimelineFiltersButton, applyTimelineFilter, filterAc
 import { EvidenceConflictsWorkspace } from "../evidence/EvidenceConflictsWorkspace";
 import { conflictsForCase } from "../evidence/conflictData";
 import { useConflictDecisions } from "../evidence/conflictDecisions";
-import { INSURANCE_ANALYSIS } from "../insurance/insuranceData";
+import { useInsuranceSummary } from "../insurance/caseInsurance";
 import { resolveCasePolicy, POLICY_UNAVAILABLE } from "../insurance/casePolicy";
 import { Button } from "../components/ui/button";
 import { DocActions, DocumentWorkspaceModal, RowMenu, RowActionGroup } from "../components/DocumentWorkspace";
@@ -511,6 +511,7 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
   const liabilityPage = detail === "liability" && !!liabilityRecord;
   const liabilityDefendants = liabilityRecord ? defendantsForCase(caseData?.caseId ?? "PI-2024-001") : undefined;
   const counts = useAnalysisCounts(caseData?.caseId, documents);
+  const insurance = useInsuranceSummary(caseData?.caseId ?? "PI-2024-001", documents);
   const liabilityCount = counts.liability;
   const injuryCount = counts.injury;
   const violationCount = counts.violations;
@@ -767,7 +768,7 @@ export function AnalysisPage({ caseData, documents = [], onStageClick, onBackToI
       description: "Key injury findings, medical evidence, and documented impacts relevant to the case.", onOpen: () => onOpenDetail?.("injury") },
     { title: "Violation Analysis", category: "Analysis", icon: Gavel, count: violationCount, meta: `${violationCount} ${violationCount === 1 ? "violation" : "violations"}`,
       description: "Identified violations, supporting evidence, and their relevance to potential liability.", onOpen: () => onOpenDetail?.("violations") },
-    { title: "Insurance Policy Analysis", category: "Insurance", icon: Shield, meta: `Analysed ${INSURANCE_ANALYSIS.analysedOn}`,
+    { title: "Insurance Policy Analysis", category: "Insurance", icon: Shield, meta: insurance.meta,
       description: "Review policy validity, coverage, limits, red flags, liens, and insurer information.", onOpen: onOpenInsurance },
     { title: "Medical Chronology", category: "Medical", icon: ClipboardList, meta: "Treatment timeline",
       description: "Review the treatment timeline, key medical events, and supporting records from the incident through the present.", onOpen: onOpenChronology },

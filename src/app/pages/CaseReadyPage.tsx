@@ -10,7 +10,7 @@ import { governingLawSummary } from "../jurisdiction/jurisdictionData";
 import { DELIVERABLES, type DeliverableKind } from "./DeliverablePage";
 import { defendantsForCase } from "../defendants/defendantData";
 import { useDefendantDecisions } from "../defendants/defendantDecisionStore";
-import { INSURANCE_ANALYSIS } from "../insurance/insuranceData";
+import { useInsuranceSummary } from "../insurance/caseInsurance";
 import { Button } from "../components/ui/button";
 import {
   PipelineState,
@@ -62,6 +62,7 @@ const deliverables = DELIVERABLES.map((d) => ({ ...d, color: "bg-tint text-deep"
 export function CaseReadyPage({ caseData, pipeline, onStageClick, onBackToIntake, onOpenWorkspace, onOpenInsurance, onOpenDeliverable, onOpenDefendants, onOpenAnalysisDetail, onOpenJurisdiction, governingLaw, scrollToSection }: CaseReadyPageProps) {
   // The Analysis Findings, as deliverables — the same counts the Analysis stage shows.
   const counts = useAnalysisCounts(caseData?.caseId, pipeline?.documents ?? []);
+  const insurance = useInsuranceSummary(caseData?.caseId ?? "PI-2024-001", pipeline?.documents ?? []);
   const law = governingLawSummary(caseData?.caseId, caseData?.jurisdiction, governingLaw);
   const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
   const analysisCards: { id: string; title: string; category: string; icon: any; description: string; count?: number; meta: string; onOpen?: () => void }[] = [
@@ -308,12 +309,12 @@ export function CaseReadyPage({ caseData, pipeline, onStageClick, onBackToIntake
                     Insurance
                   </div>
                 </div>
-                <h3 className="card-title mb-1">{INSURANCE_ANALYSIS.title}</h3>
+                <h3 className="card-title mb-1">Insurance Policy Analysis</h3>
                 <p className="secondary-text leading-relaxed flex-1">
-                  Legal validity, coverage, limits, red flags, liens and insurer profile in one attorney-ready view.
+                  Parties, policies, coverage, liens, bad-faith readiness and open insurance issues in one view.
                 </p>
                 <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-line">
-                  <span className="mono-ref">{INSURANCE_ANALYSIS.analysedOn}</span>
+                  <span className="mono-ref truncate">{insurance.meta}</span>
                   <button
                     onClick={onOpenInsurance}
                     className="flex items-center gap-1 text-xs font-medium text-deep hover:text-ink transition-colors"

@@ -18,7 +18,6 @@ import { DemandSpacePage } from "./DemandSpacePage";
 import { DemandPackageEditorPage } from "./DemandPackageEditorPage";
 import { InsuranceSummaryPage } from "./InsuranceSummaryPage";
 import { DefendantAnalysisPage } from "./DefendantAnalysisPage";
-import { InsuranceDetailPage } from "./InsuranceDetailPage";
 
 interface CaseWorkspacePageProps {
   caseData?: any;
@@ -237,18 +236,12 @@ export function CaseWorkspacePage({ caseData, analysisFindings = [], documents =
           }
         />
       );
-      case INSURANCE_STAGE: return insuranceDetail ? (
-        <InsuranceDetailPage
-          embedded
-          caseName={model.caseName}
-          onBack={() => openInsurance(false)}
-          onBackToAnalysis={backToOverview}
-        />
-      ) : (
+      case INSURANCE_STAGE: return (
         <InsuranceSummaryPage
           embedded
           caseName={model.caseName}
-          caseData={{ caseType: model.caseType, caseSubType: caseData?.caseSubType }}
+          caseData={{ ...caseData, caseName: model.caseName, caseId: model.caseId, caseType: model.caseType, caseSubType: caseData?.caseSubType, jurisdiction: model.jurisdiction }}
+          initialSection={insuranceDetail ? "ins-policy" : undefined}
           documents={documents}
           backLabel="Back to Case Overview"
           onBack={backToOverview}

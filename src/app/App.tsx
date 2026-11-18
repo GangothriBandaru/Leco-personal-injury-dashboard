@@ -13,7 +13,6 @@ import { IntakeWorkflowPage } from "./pages/IntakeWorkflowPage";
 import { ClassificationPage } from "./pages/ClassificationPage";
 import { AnalysisPage, type AnalysisDetail } from "./pages/AnalysisPage";
 import { InsuranceSummaryPage } from "./pages/InsuranceSummaryPage";
-import { InsuranceDetailPage } from "./pages/InsuranceDetailPage";
 import { ValuationPage } from "./pages/ValuationPage";
 import { CaseReadyPage } from "./pages/CaseReadyPage";
 import { CaseWorkspacePage } from "./pages/CaseWorkspacePage";
@@ -190,7 +189,6 @@ export default function App() {
     setActivePage("workspace");
     setSidebarCollapsed(true);
   };
-  const openInsurancePage = (page: "insurance" | "insurance-detail") => setActivePage(page);
   const openInsuranceFrom = (origin: "analysis" | "case-ready") => {
     setInsuranceOrigin(origin);
     setActivePage("insurance");
@@ -356,15 +354,17 @@ export default function App() {
             documents={pipeline.documents}
             backLabel={INSURANCE_BACK_LABEL[insuranceOrigin]}
             onBack={backToInsuranceOrigin}
-            onOpenDetail={() => openInsurancePage("insurance-detail")}
           />
         );
       case "insurance-detail":
         return (
-          <InsuranceDetailPage
+          <InsuranceSummaryPage
             caseName={selectedCase?.caseName ?? "Case"}
-            onBack={() => openInsurancePage("insurance")}
-            onBackToAnalysis={backToInsuranceOrigin}
+            caseData={selectedCase}
+            documents={pipeline.documents}
+            backLabel={INSURANCE_BACK_LABEL[insuranceOrigin]}
+            onBack={backToInsuranceOrigin}
+            initialSection="ins-policy"
           />
         );
       case "valuation":
